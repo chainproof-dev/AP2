@@ -301,6 +301,38 @@ def _generate_payment_mandate_hash(
   )
 
 
+async def revoke_mandate(
+    mandate_id: str,
+    mandate_type: str,
+    tool_context: ToolContext,
+    debug_mode: bool = False,
+) -> str:
+  """Revokes a mandate by sending a revocation request to the merchant agent.
+
+  Args:
+    mandate_id: The ID of the mandate to revoke.
+    mandate_type: The type of mandate (cart, intent, or payment).
+    tool_context: The ADK supplied tool context.
+    debug_mode: Whether the agent is in debug mode.
+
+  Returns:
+    The status of the revocation request.
+  """
+  message = (
+      A2aMessageBuilder()
+      .set_context_id(tool_context.state["shopping_context_id"])
+      .add_text("Revoke mandate")
+      .add_data("mandate_id", mandate_id)
+      .add_data("mandate_type", mandate_type)
+      .add_data("shopping_agent_id", "trusted_shopping_agent")
+      .add_data("debug_mode", debug_mode)
+      .build()
+  )
+
+  task = await merchant_agent_client.send_a2a_message(message)
+  return task.status
+
+
 def _parse_cart_mandates(artifacts: list[Artifact]) -> list[CartMandate]:
   """Parses a list of artifacts into a list of CartMandate objects."""
   return artifact_utils.find_canonical_objects(

@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""In-memory storage for CartMandates.
+"""In-memory storage for mandates.
 
-A CartMandate may be updated multiple times during the course of a shopping
-journey. This storage system is used to persist CartMandates between
+Mandates may be updated multiple times during the course of a shopping
+journey. This storage system is used to persist mandates between
 interactions between the shopper and merchant agents.
 """
 
 from typing import Optional
 
-from ap2.types.mandate import CartMandate
+from ap2.types.mandate import CartMandate, IntentMandate, PaymentMandate
 
 
 def get_cart_mandate(cart_id: str) -> Optional[CartMandate]:
@@ -44,4 +44,29 @@ def get_risk_data(context_id: str) -> Optional[str]:
   return _store.get(context_id)
 
 
-_store = {}
+# Intent Mandate storage functions
+def get_intent_mandate(mandate_id: str) -> Optional[IntentMandate]:
+  """Get an intent mandate by mandate ID."""
+  return _intent_store.get(mandate_id)
+
+
+def set_intent_mandate(mandate_id: str, intent_mandate: IntentMandate) -> None:
+  """Set an intent mandate by mandate ID."""
+  _intent_store[mandate_id] = intent_mandate
+
+
+# Payment Mandate storage functions
+def get_payment_mandate(mandate_id: str) -> Optional[PaymentMandate]:
+  """Get a payment mandate by mandate ID."""
+  return _payment_store.get(mandate_id)
+
+
+def set_payment_mandate(mandate_id: str, payment_mandate: PaymentMandate) -> None:
+  """Set a payment mandate by mandate ID."""
+  _payment_store[mandate_id] = payment_mandate
+
+
+# Storage dictionaries
+_store = {}  # For cart mandates and risk data
+_intent_store = {}  # For intent mandates
+_payment_store = {}  # For payment mandates

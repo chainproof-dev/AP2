@@ -16,6 +16,7 @@
 
 from datetime import datetime
 from datetime import timezone
+from enum import Enum
 from typing import Optional
 
 from ap2.types.payment_request import PaymentItem
@@ -29,7 +30,43 @@ INTENT_MANDATE_DATA_KEY = "ap2.mandates.IntentMandate"
 PAYMENT_MANDATE_DATA_KEY = "ap2.mandates.PaymentMandate"
 
 
-class IntentMandate(BaseModel):
+class MandateStatus(str, Enum):
+  """Represents the lifecycle status of a mandate.
+
+  The mandate lifecycle follows this state machine:
+  - DRAFT: Initial state when mandate is created but not yet active
+  - ACTIVE: Mandate is active and can be executed
+  - REVOKED: Mandate has been revoked by the user or system
+  - EXPIRED: Mandate has expired due to time limits
+  - COMPLETED: Mandate has been successfully executed
+  - FAILED: Mandate execution failed and cannot be retried
+  """
+  DRAFT = "DRAFT"
+  ACTIVE = "ACTIVE"
+  REVOKED = "REVOKED"
+  EXPIRED = "EXPIRED"
+  COMPLETED = "COMPLETED"
+  FAILED = "FAILED"
+
+
+class BaseMandate(BaseModel):
+  """Base class for all mandate types with common lifecycle management."""
+
+  status: MandateStatus = Field(
+      default=MandateStatus.ACTIVE,
+      description="The current lifecycle status of the mandate"
+  )
+  created_at: str = Field(
+      default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+      description="Timestamp when the mandate was created, in ISO 8601 format"
+  )
+  updated_at: str = Field(
+      default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+      description="Timestamp when the mandate was last updated, in ISO 8601 format"
+  )
+
+
+class IntentMandate(BaseMandate):
   """Represents the user's purchase intent.
 
   These are the initial fields utilized in the human-present flow. For
@@ -104,7 +141,7 @@ class CartContents(BaseModel):
   merchant_name: str = Field(..., description="The name of the merchant.")
 
 
-class CartMandate(BaseModel):
+class CartMandate(BaseMandate):
   """A cart whose contents have been digitally signed by the merchant.
 
   This serves as a guarantee of the items and price for a limited time.
@@ -162,7 +199,7 @@ class PaymentMandateContents(BaseModel):
   )
 
 
-class PaymentMandate(BaseModel):
+class PaymentMandate(BaseMandate):
   """Contains the user's instructions & authorization for payment.
 
   While the Cart and Intent mandates are required by the merchant to fulfill the
@@ -191,7 +228,7 @@ class PaymentMandate(BaseModel):
             "aud": ...
             "nonce": ...
             "sd_hash": hash of the issuer-signed jwt
-            "transaction_data": an array containing the secure hashes of 
+            "transaction_data": an array containing the secure hashes of
               CartMandate and PaymentMandateContents.
 
           """

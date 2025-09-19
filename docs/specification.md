@@ -537,7 +537,157 @@ session. All existing risk systems that merchants, networks & issuers have
 instituted, should still be able to reason over the data they are receiving and
 identify when the challenges are needed, ensuring backward compatibility.
 
-## Section 6: Enabling Dispute Resolution
+## Section 6: Mandate Lifecycle Management
+
+The Agent Payments Protocol defines a comprehensive lifecycle for mandates to ensure
+proper management, accountability, and security throughout their existence. This
+lifecycle management is critical for production deployments where mandates may need
+to be revoked, amended, or monitored for compliance.
+
+### 6.1 Mandate Lifecycle States
+
+All mandates in the AP2 protocol follow a defined state machine with the following states:
+
+- **DRAFT**: Initial state when a mandate is created but not yet active. This allows
+  for validation and user confirmation before activation.
+- **ACTIVE**: The mandate is active and can be executed. This is the default state
+  for newly created mandates that have been validated.
+- **REVOKED**: The mandate has been revoked by the user or system and cannot be
+  executed. This state is irreversible.
+- **EXPIRED**: The mandate has expired due to time limits and cannot be executed.
+  This state is irreversible.
+- **COMPLETED**: The mandate has been successfully executed and fulfilled.
+- **FAILED**: The mandate execution failed and cannot be retried. This state is
+  irreversible.
+
+### 6.2 State Transitions
+
+The following state transitions are valid:
+
+- DRAFT → ACTIVE: Mandate is validated and activated
+- ACTIVE → REVOKED: User or system revokes the mandate
+- ACTIVE → EXPIRED: Mandate reaches its expiration time
+- ACTIVE → COMPLETED: Mandate is successfully executed
+- ACTIVE → FAILED: Mandate execution fails
+- DRAFT → REVOKED: Mandate is revoked before activation
+
+### 6.3 Mandate Revocation
+
+Users must have the ability to revoke mandates before they are executed. This is
+essential for maintaining user control and trust in the system.
+
+#### 6.3.1 Revocation Process
+
+1. **User Initiated**: The user explicitly requests revocation through their agent
+2. **Agent Validation**: The agent validates the user's identity and authorization
+3. **Mandate Update**: The mandate status is updated to REVOKED
+4. **Notification**: All relevant parties are notified of the revocation
+5. **Audit Logging**: The revocation event is logged for audit purposes
+
+#### 6.3.2 Revocation API
+
+The protocol defines a standard endpoint for mandate revocation:
+
+```
+POST /mandates/{mandate_id}/revoke
+```
+
+This endpoint accepts a signed request from an authorized user agent, verifies the
+signature, and updates the mandate status to REVOKED.
+
+### 6.4 Mandate Expiration
+
+Mandates automatically expire based on their configured time-to-live (TTL). This
+prevents stale mandates from being executed and reduces security risks.
+
+#### 6.4.1 Expiration Handling
+
+- **Automatic Detection**: Agents must check mandate expiration before execution
+- **Graceful Degradation**: Expired mandates cannot be executed but may be used for
+  audit purposes
+- **User Notification**: Users should be notified when mandates are about to expire
+
+### 6.5 Audit and Compliance
+
+All mandate lifecycle events are logged for audit and compliance purposes:
+
+- **Event Types**: Creation, activation, revocation, expiration, completion, failure
+- **Timestamps**: All events include precise timestamps
+- **Actor Identification**: The agent or user responsible for each state change
+- **Digital Signatures**: Critical state changes are cryptographically signed
+
+## Section 7: Error Handling and Reporting
+
+Consistent error handling is essential for the reliability and debuggability of the
+Agent Payments Protocol. This section defines standardized error schemas and handling
+procedures based on RFC 7807 "Problem Details for HTTP APIs".
+
+### 7.1 Standardized Error Schema
+
+All AP2 agents and endpoints use a consistent error format based on RFC 7807:
+
+```json
+{
+  "type": "https://ap2-protocol.org/errors/mandate-not-found",
+  "title": "Mandate Not Found",
+  "status": 404,
+  "detail": "The mandate with ID 'abc123' could not be found.",
+  "instance": "/mandates/abc123",
+  "mandate_reference": "abc123",
+  "error_code": "MANDATE_NOT_FOUND",
+  "retry_after": 30,
+  "extensions": {
+    "additional_context": "value"
+  }
+}
+```
+
+### 7.2 Error Categories
+
+The protocol defines several categories of errors:
+
+#### 7.2.1 Mandate Lifecycle Errors
+- `mandate-not-found`: The specified mandate does not exist
+- `mandate-already-revoked`: Attempt to execute a revoked mandate
+- `mandate-expired`: Attempt to execute an expired mandate
+- `mandate-invalid-status`: Invalid state transition attempted
+
+#### 7.2.2 Payment Processing Errors
+- `payment-method-not-supported`: Unsupported payment method
+- `payment-declined`: Payment was declined by the processor
+- `payment-amount-exceeded`: Payment amount exceeds limits
+- `payment-insufficient-funds`: Insufficient funds for payment
+
+#### 7.2.3 Authentication and Authorization Errors
+- `unauthorized-agent`: Agent is not authorized for the operation
+- `invalid-signature`: Cryptographic signature validation failed
+- `missing-authorization`: Required authorization is missing
+
+#### 7.2.4 Validation Errors
+- `invalid-mandate-format`: Mandate data format is invalid
+- `missing-required-field`: Required field is missing
+- `invalid-payment-request`: Payment request validation failed
+
+### 7.3 Error Handling Best Practices
+
+#### 7.3.1 Agent Error Handling
+- All agents must catch and handle errors gracefully
+- Errors should be logged with appropriate context
+- Users should receive clear, actionable error messages
+- Sensitive information should not be exposed in error messages
+
+#### 7.3.2 Retry Logic
+- Transient errors should include retry guidance
+- Exponential backoff should be used for retries
+- Maximum retry limits should be enforced
+- Circuit breakers should be implemented for failing services
+
+#### 7.3.3 Error Monitoring
+- All errors should be logged for monitoring
+- Error rates should be tracked and alerted on
+- Error patterns should be analyzed for system improvements
+
+## Section 8: Enabling Dispute Resolution
 
 A clear and predictable framework for handling disputed transactions is
 paramount for the adoption of any new payment protocol by financial
@@ -585,7 +735,7 @@ Table 6.1: New Evidence in Common Scenarios
 | Account Takeover (ATO)      | A fraudster gains control of a user's account and uses their AI Agent to make unauthorized purchases with pre-existing payment methods in the user’s Credentials Provider. | Analysis of authentication signals during the session and mandate signing.                                                           |
 | Man-in-the-Middle Attack    | An attacker intercepts and alters a transaction payload in transit (e.g., changes the shipping address).                                                                   | Verification of digital signatures and payload integrity. The signed VDCs are designed to make this infeasible.                       |
 
-## Section 7: Technical Implementation
+## Section 9: Technical Implementation
 
 Based on the roadmap defined at the beginning of this document, this section
 will focus on the technical implementation for the Human-Present scenario in the
@@ -924,7 +1074,7 @@ various entities but it is intentionally left open-ended for now since we expect
 different players in the industry to assess the right signals which should be
 included based on different risk appetites and business models.
 
-## Section 8: Looking Ahead: Enabling Dynamic Commerce
+## Section 10: Looking Ahead: Enabling Dynamic Commerce
 
 This protocol does more than just secure simple purchases. Its flexible design
 provides a foundation for the advanced and dynamic commerce models of the
@@ -947,7 +1097,7 @@ impossible. This allows the merchant to capture a high-intent sale and receive
 direct, valuable feedback on product demand, turning a dead end into a
 successful transaction.
 
-## Section 9: A Call for Ecosystem Collaboration
+## Section 11: A Call for Ecosystem Collaboration
 
 The Agent Payments Protocol provides a mechanism for secure payments, but it's
 part of a larger picture. We acknowledge that there are adjacent problems which

@@ -19,7 +19,7 @@ The shopping agent's role is to engage with a user to:
 2. Help complete the purchase of their chosen items.
 
 The Google ADK powers this shopping agent, chosen for its simplicity and
-efficiency in developing robust LLM agents. 
+efficiency in developing robust LLM agents.
 """
 
 from . import tools
@@ -36,7 +36,8 @@ root_agent = RetryingLlmAgent(
     name="root_agent",
     instruction="""
           You are a shopping agent responsible for helping users find and
-          purchase products from merchants.
+          purchase products from merchants. You also support mandate lifecycle
+          management, allowing users to revoke mandates before execution.
 
           Follow these instructions, depending upon the scenario:
 
@@ -103,10 +104,16 @@ root_agent = RetryingLlmAgent(
             want to start with their shopping prompt.
 
          Scenario 3:
+         The user wants to revoke a mandate.
+          1. Use the `revoke_mandate` tool to revoke the specified mandate.
+          2. Provide confirmation to the user that the mandate has been revoked.
+          3. Explain that revoked mandates cannot be executed.
+
+         Scenario 4:
          The users ask you do to anything else.
           1. Respond to the user with this message:
              "Hi, I'm your shopping assistant. How can I help you?  For example,
-             you can say 'I want to buy a pair of shoes'"
+             you can say 'I want to buy a pair of shoes' or 'revoke my mandate'"
           """ % DEBUG_MODE_INSTRUCTIONS,
     tools=[
         tools.create_payment_mandate,
@@ -115,6 +122,7 @@ root_agent = RetryingLlmAgent(
         tools.send_signed_payment_mandate_to_credentials_provider,
         tools.sign_mandates_on_user_device,
         tools.update_cart,
+        tools.revoke_mandate,
     ],
     sub_agents=[
         shopper,

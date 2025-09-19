@@ -25,7 +25,7 @@ https://www.w3.org/TR/contact-picker/
 
 from typing import Optional
 
-from pydantic import BaseModel
+pydanticfrom pydantic import BaseModel
 
 CONTACT_ADDRESS_DATA_KEY = "contact_picker.ContactAddress"
 

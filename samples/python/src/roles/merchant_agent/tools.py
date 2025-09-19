@@ -21,6 +21,7 @@ shopping and purchasing process.
 import base64
 import json
 import logging
+from datetime import datetime, timezone
 
 from pydantic import ValidationError
 from typing import Any
@@ -36,8 +37,10 @@ from ap2.types.contact_picker import ContactAddress
 from ap2.types.mandate import CART_MANDATE_DATA_KEY
 from ap2.types.mandate import PAYMENT_MANDATE_DATA_KEY
 from ap2.types.mandate import PaymentMandate
+from ap2.types.mandate import MandateStatus
 from ap2.types.payment_request import PaymentCurrencyAmount
 from ap2.types.payment_request import PaymentItem
+from ap2.types.error_schema import AP2Error, ErrorType, create_error, mandate_not_found_error, mandate_already_revoked_error
 from common import message_utils
 from common.a2a_extension_utils import EXTENSION_URI
 from common.a2a_message_builder import A2aMessageBuilder
@@ -163,6 +166,27 @@ async def initiate_payment(
     await _fail_task(updater, "Missing payment_mandate.")
     return
 
+  # Check mandate status before processing
+  if payment_mandate.status != MandateStatus.ACTIVE:
+    if payment_mandate.status == MandateStatus.REVOKED:
+      error = mandate_already_revoked_error(payment_mandate.payment_mandate_contents.payment_mandate_id)
+    elif payment_mandate.status == MandateStatus.EXPIRED:
+      error = create_error(
+          ErrorType.MANDATE_EXPIRED,
+          "Mandate Expired",
+          410,
+          f"Payment mandate {payment_mandate.payment_mandate_contents.payment_mandate_id} has expired and cannot be executed."
+      )
+    else:
+      error = create_error(
+          ErrorType.MANDATE_INVALID_STATUS,
+          "Mandate Invalid Status",
+          409,
+          f"Payment mandate is in {payment_mandate.status} status and cannot be executed."
+      )
+    await _fail_task_with_error(updater, error)
+    return
+
   risk_data = message_utils.find_data_part("risk_data", data_parts)
   if not risk_data:
     await _fail_task(updater, "Missing risk_data.")
@@ -266,9 +290,120 @@ def _get_payment_processor_task_id(task: Task | None) -> str | None:
   return None
 
 
+async def revoke_mandate(
+    data_parts: list[dict[str, Any]],
+    updater: TaskUpdater,
+    current_task: Task | None,
+    debug_mode: bool = False,
+) -> None:
+  """Revokes a mandate by updating its status to REVOKED.
+
+  Args:
+    data_parts: A list of data part contents from the request.
+    updater: The TaskUpdater instance to add artifacts and complete the task.
+    current_task: The current task -- not used in this function.
+    debug_mode: Whether the agent is in debug mode.
+  """
+  mandate_id = message_utils.find_data_part("mandate_id", data_parts)
+  if not mandate_id:
+    error = create_error(
+        ErrorType.MISSING_REQUIRED_FIELD,
+        "Missing Required Field",
+        400,
+        "mandate_id is required for mandate revocation"
+    )
+    await _fail_task_with_error(updater, error)
+    return
+
+  mandate_type = message_utils.find_data_part("mandate_type", data_parts)
+  if not mandate_type:
+    error = create_error(
+        ErrorType.MISSING_REQUIRED_FIELD,
+        "Missing Required Field",
+        400,
+        "mandate_type is required for mandate revocation"
+    )
+    await _fail_task_with_error(updater, error)
+    return
+
+  # Get the mandate from storage based on type
+  mandate = None
+  if mandate_type == "cart":
+    mandate = storage.get_cart_mandate(mandate_id)
+  elif mandate_type == "intent":
+    mandate = storage.get_intent_mandate(mandate_id)
+  elif mandate_type == "payment":
+    mandate = storage.get_payment_mandate(mandate_id)
+  else:
+    error = create_error(
+        ErrorType.INVALID_MANDATE_FORMAT,
+        "Invalid Mandate Format",
+        400,
+        f"Unsupported mandate type: {mandate_type}"
+    )
+    await _fail_task_with_error(updater, error)
+    return
+
+  if not mandate:
+    error = mandate_not_found_error(mandate_id)
+    await _fail_task_with_error(updater, error)
+    return
+
+  # Check if mandate is already revoked
+  if mandate.status == MandateStatus.REVOKED:
+    error = mandate_already_revoked_error(mandate_id)
+    await _fail_task_with_error(updater, error)
+    return
+
+  # Check if mandate can be revoked (not completed or failed)
+  if mandate.status in [MandateStatus.COMPLETED, MandateStatus.FAILED]:
+    error = create_error(
+        ErrorType.MANDATE_INVALID_STATUS,
+        "Mandate Invalid Status",
+        409,
+        f"Cannot revoke mandate in {mandate.status} status"
+    )
+    await _fail_task_with_error(updater, error)
+    return
+
+  # Update mandate status to REVOKED
+  mandate.status = MandateStatus.REVOKED
+  mandate.updated_at = datetime.now(timezone.utc).isoformat()
+
+  # Save updated mandate
+  if mandate_type == "cart":
+    storage.set_cart_mandate(mandate_id, mandate)
+  elif mandate_type == "intent":
+    storage.set_intent_mandate(mandate_id, mandate)
+  elif mandate_type == "payment":
+    storage.set_payment_mandate(mandate_id, mandate)
+
+  # Log the revocation event
+  logging.info(f"Mandate {mandate_id} of type {mandate_type} has been revoked")
+
+  # Return success response
+  await updater.add_artifact([
+      Part(root=DataPart(data={
+          "mandate_id": mandate_id,
+          "mandate_type": mandate_type,
+          "status": "REVOKED",
+          "revoked_at": mandate.updated_at
+      }))
+  ])
+  await updater.complete()
+
+
 async def _fail_task(updater: TaskUpdater, error_text: str) -> None:
   """A helper function to fail a task with a given error message."""
   error_message = updater.new_agent_message(
       parts=[Part(root=TextPart(text=error_text))]
+  )
+  await updater.failed(message=error_message)
+
+
+async def _fail_task_with_error(updater: TaskUpdater, error: AP2Error) -> None:
+  """A helper function to fail a task with a standardized error response."""
+  error_message = updater.new_agent_message(
+      parts=[Part(root=DataPart(data=error.model_dump()))]
   )
   await updater.failed(message=error_message)
